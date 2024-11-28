@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Configuração
-DEV_MODE=true # Altere para "true" para habilitar modo de desenvolvimento
-
 # Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -79,41 +76,23 @@ else
     log "Docker Swarm já configurado."
 fi
 
-# Limpar configuração anterior (Modo Desenvolvimento)
+# Limpar configuração anterior
 INSTALL_DIR="/opt/gtm-installer"
 SYMLINK="/usr/local/bin/gtm-installer"
 
-if [ "$DEV_MODE" = true ]; then
-    log "Modo de desenvolvimento detectado: limpando todos os resquícios..." "$YELLOW"
-    # Parar containers Docker relacionados, se existirem
-    docker stack rm gtm_stack &>/dev/null || true
-    sleep 5
-    docker system prune -af --volumes &>/dev/null || true
+log "Limpando qualquer instalação anterior..." "$YELLOW"
+docker stack rm gtm_stack &>/dev/null || true
+sleep 5
+docker system prune -af --volumes &>/dev/null || true
 
-    # Remover diretório de instalação
-    if [ -d "$INSTALL_DIR" ]; then
-        rm -rf "$INSTALL_DIR"
-        log "Diretório $INSTALL_DIR removido." "$RED"
-    fi
+if [ -d "$INSTALL_DIR" ]; then
+    rm -rf "$INSTALL_DIR"
+    log "Diretório $INSTALL_DIR removido." "$RED"
+fi
 
-    # Remover link simbólico
-    if [ -L "$SYMLINK" ]; then
-        rm -f "$SYMLINK"
-        log "Link simbólico $SYMLINK removido." "$RED"
-    fi
-else
-    if [ -d "$INSTALL_DIR" ]; then
-        log "GTM Installer já está instalado."
-        read -p "Deseja reinstalar? (y/n): " resposta
-        if [[ "$resposta" =~ ^[Yy]$ ]]; then
-            log "Reinstalando GTM Installer..." "$YELLOW"
-            rm -rf "$INSTALL_DIR"
-            rm -f "$SYMLINK"
-        else
-            log "Instalação não modificada. Execute 'gtm-installer' para começar." "$GREEN"
-            exit 0
-        fi
-    fi
+if [ -L "$SYMLINK" ]; then
+    rm -f "$SYMLINK"
+    log "Link simbólico $SYMLINK removido." "$RED"
 fi
 
 # Clonar repositório
