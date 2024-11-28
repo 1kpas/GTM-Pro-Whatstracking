@@ -44,25 +44,6 @@ if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | bash
     systemctl enable docker
     systemctl start docker
-    
-    # Configurar Docker daemon
-    mkdir -p /etc/docker
-    cat > /etc/docker/daemon.json <<EOF
-{
-    "log-driver": "json-file",
-    "log-opts": {
-        "max-size": "100m",
-        "max-file": "3"
-    },
-    "default-address-pools": [
-        {
-            "base": "172.17.0.0/16",
-            "size": 24
-        }
-    ]
-}
-EOF
-    systemctl restart docker
 else
     log "Docker já instalado."
 fi
@@ -102,7 +83,11 @@ cd "$INSTALL_DIR"
 
 # Instalar dependências
 log "Instalando dependências..."
-npm ci --production
+npm install --production &>/tmp/npm-install.log
+if [ $? -ne 0 ]; then
+    log "Erro ao instalar dependências. Verifique o log em /tmp/npm-install.log" "$RED"
+    exit 1
+fi
 
 # Criar link simbólico
 log "Criando link simbólico para o GTM Installer..."
