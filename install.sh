@@ -79,44 +79,59 @@ else
     log "Docker Swarm já configurado."
 fi
 
-# Criar diretórios
-log "Criando diretórios..."
-mkdir -p /root/dados_vps/{logs,configs,stacks}
-chmod 700 /root/dados_vps
-
-# Instalar GTM Installer
-log "Instalando GTM Installer..."
+# Limpar configuração anterior (Modo Desenvolvimento)
 INSTALL_DIR="/opt/gtm-installer"
+SYMLINK="/usr/local/bin/gtm-installer"
 
 if [ "$DEV_MODE" = true ]; then
-    log "Modo de desenvolvimento ativo: reinstalando tudo..." "$YELLOW"
-    rm -rf "$INSTALL_DIR"
-elif [ -d "$INSTALL_DIR" ]; then
-    log "GTM Installer já está instalado."
-    read -p "Deseja reinstalar? (y/n): " resposta
-    if [[ "$resposta" =~ ^[Yy]$ ]]; then
+    log "Modo de desenvolvimento detectado: limpando todos os resquícios..." "$YELLOW"
+    # Parar containers Docker relacionados, se existirem
+    docker stack rm gtm_stack &>/dev/null || true
+    sleep 5
+    docker system prune -af --volumes &>/dev/null || true
+
+    # Remover diretório de instalação
+    if [ -d "$INSTALL_DIR" ]; then
         rm -rf "$INSTALL_DIR"
-        log "Reinstalando GTM Installer..." "$YELLOW"
-    else
-        log "Instalação não modificada. Execute 'gtm-installer' para começar." "$GREEN"
-        exit 0
+        log "Diretório $INSTALL_DIR removido." "$RED"
+    fi
+
+    # Remover link simbólico
+    if [ -L "$SYMLINK" ]; then
+        rm -f "$SYMLINK"
+        log "Link simbólico $SYMLINK removido." "$RED"
+    fi
+else
+    if [ -d "$INSTALL_DIR" ]; then
+        log "GTM Installer já está instalado."
+        read -p "Deseja reinstalar? (y/n): " resposta
+        if [[ "$resposta" =~ ^[Yy]$ ]]; then
+            log "Reinstalando GTM Installer..." "$YELLOW"
+            rm -rf "$INSTALL_DIR"
+            rm -f "$SYMLINK"
+        else
+            log "Instalação não modificada. Execute 'gtm-installer' para começar." "$GREEN"
+            exit 0
+        fi
     fi
 fi
 
 # Clonar repositório
+log "Clonando repositório..."
 git clone https://github.com/1kpas/GTM-Pro-Whatstracking.git "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # Instalar dependências
+log "Instalando dependências..."
 npm ci --production
 
 # Criar link simbólico
 log "Criando link simbólico para o GTM Installer..."
-cat > /usr/local/bin/gtm-installer <<EOF
+cat > "$SYMLINK" <<EOF
 #!/usr/bin/env node
 require('$INSTALL_DIR/src/index.js');
 EOF
-chmod +x /usr/local/bin/gtm-installer
+chmod +x "$SYMLINK"
 
 # Configurar atualizações automáticas
 log "Configurando atualizações automáticas..."
