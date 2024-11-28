@@ -6,57 +6,109 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}GTM - Pro Whatsapp Stack Installer${NC}"
-echo "=============================="
+# Função para log
+log() {
+    echo -e "${2:-$GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
 
-# Verificar se está rodando como root
+# Verificar root
 if [ "$EUID" -ne 0 ]; then 
-  echo -e "${RED}Por favor, execute como root (sudo)${NC}"
-  exit
+    log "Execute como root (sudo)" "$RED"
+    exit 1
 fi
 
-# Instalar curl se não estiver instalado
-if ! command -v curl &> /dev/null; then
-  apt-get update
-  apt-get install -y curl
-fi
+# Atualizar sistema
+log "Atualizando sistema..."
+apt-get update && apt-get upgrade -y
+apt-get install -y software-properties-common curl wget git apt-transport-https ca-certificates gnupg
 
-# Instalar Node.js e npm
+# Configurar timezone
+log "Configurando timezone..."
+timedatectl set-timezone America/Sao_Paulo
+
+# Instalar Node.js 20 LTS
+log "Configurando Node.js..."
 if ! command -v node &> /dev/null; then
-  echo -e "${YELLOW}Instalando Node.js...${NC}"
-  curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
-  apt-get install -y nodejs
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+    npm install -g npm@latest
+    node_version=$(node --version)
+    log "Node.js $node_version instalado com sucesso"
 fi
 
-# Instalar Docker se não estiver instalado
+# Instalar Docker
+log "Configurando Docker..."
 if ! command -v docker &> /dev/null; then
-  echo -e "${YELLOW}Instalando Docker...${NC}"
-  curl -fsSL https://get.docker.com | bash
-  systemctl enable docker
-  systemctl start docker
+    curl -fsSL https://get.docker.com | bash
+    systemctl enable docker
+    systemctl start docker
+    
+    # Configurar Docker daemon
+    mkdir -p /etc/docker
+    cat > /etc/docker/daemon.json <<EOF
+{
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "100m",
+        "max-file": "3"
+    },
+    "default-address-pools": [
+        {
+            "base": "172.17.0.0/16",
+            "size": 24
+        }
+    ]
+}
+EOF
+    systemctl restart docker
 fi
 
-# Inicializar Docker Swarm
+# Inicializar Swarm
+log "Configurando Docker Swarm..."
 if ! docker info | grep -q "Swarm: active"; then
-  echo -e "${YELLOW}Inicializando Docker Swarm...${NC}"
-  ip=$(hostname -I | awk '{print $1}')
-  docker swarm init --advertise-addr $ip
+    ip=$(hostname -I | awk '{print $1}')
+    docker swarm init --advertise-addr $ip
 fi
 
-# Criar diretório de dados
-mkdir -p /root/dados_vps
+# Criar diretórios
+log "Criando diretórios..."
+mkdir -p /root/dados_vps/{logs,configs,stacks}
+chmod 700 /root/dados_vps
+
+# Instalar GTM Installer
+log "Instalando GTM Installer..."
+INSTALL_DIR="/opt/gtm-installer"
+
+# Remover instalação anterior se existir
+if [ -d "$INSTALL_DIR" ]; then
+    rm -rf "$INSTALL_DIR"
+fi
 
 # Clonar repositório
-echo -e "${YELLOW}Baixando instalador...${NC}"
-git clone https://github.com/1kpas/GTM-Pro-Whatstracking.git /opt/gtm-installer
-cd /opt/gtm-installer
+git clone https://github.com/1kpas/GTM-Pro-Whatstracking.git "$INSTALL_DIR"
+cd "$INSTALL_DIR"
 
 # Instalar dependências
-npm install
+npm ci --production
 
 # Criar link simbólico
-ln -s /opt/gtm-installer/src/index.js /usr/local/bin/gtm-installer
+ln -sf "$INSTALL_DIR/src/index.js" /usr/local/bin/gtm-installer
 chmod +x /usr/local/bin/gtm-installer
 
-echo -e "${GREEN}Instalação concluída!${NC}"
-echo "Execute 'gtm-installer' para começar a instalar as stacks"
+# Configurar atualizações automáticas
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<EOF
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+# Configurar limpeza automática
+cat > /etc/cron.daily/docker-cleanup <<EOF
+#!/bin/bash
+docker system prune -af --volumes
+EOF
+chmod +x /etc/cron.daily/docker-cleanup
+
+log "Instalação concluída!" "$GREEN"
+log "Execute 'gtm-installer' para começar a instalar as stacks" "$YELLOW"
