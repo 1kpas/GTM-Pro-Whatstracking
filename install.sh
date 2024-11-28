@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Configuração
+DEV_MODE=false # Altere para "true" para habilitar modo de desenvolvimento
+
 # Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -34,6 +37,8 @@ if ! command -v node &> /dev/null; then
     npm install -g npm@latest
     node_version=$(node --version)
     log "Node.js $node_version instalado com sucesso"
+else
+    log "Node.js já instalado."
 fi
 
 # Instalar Docker
@@ -61,6 +66,8 @@ if ! command -v docker &> /dev/null; then
 }
 EOF
     systemctl restart docker
+else
+    log "Docker já instalado."
 fi
 
 # Inicializar Swarm
@@ -68,6 +75,8 @@ log "Configurando Docker Swarm..."
 if ! docker info | grep -q "Swarm: active"; then
     ip=$(hostname -I | awk '{print $1}')
     docker swarm init --advertise-addr $ip
+else
+    log "Docker Swarm já configurado."
 fi
 
 # Criar diretórios
@@ -79,9 +88,19 @@ chmod 700 /root/dados_vps
 log "Instalando GTM Installer..."
 INSTALL_DIR="/opt/gtm-installer"
 
-# Remover instalação anterior se existir
-if [ -d "$INSTALL_DIR" ]; then
+if [ "$DEV_MODE" = true ]; then
+    log "Modo de desenvolvimento ativo: reinstalando tudo..." "$YELLOW"
     rm -rf "$INSTALL_DIR"
+elif [ -d "$INSTALL_DIR" ]; then
+    log "GTM Installer já está instalado."
+    read -p "Deseja reinstalar? (y/n): " resposta
+    if [[ "$resposta" =~ ^[Yy]$ ]]; then
+        rm -rf "$INSTALL_DIR"
+        log "Reinstalando GTM Installer..." "$YELLOW"
+    else
+        log "Instalação não modificada. Execute 'gtm-installer' para começar." "$GREEN"
+        exit 0
+    fi
 fi
 
 # Clonar repositório
@@ -92,6 +111,7 @@ cd "$INSTALL_DIR"
 npm ci --production
 
 # Criar link simbólico
+log "Criando link simbólico para o GTM Installer..."
 cat > /usr/local/bin/gtm-installer <<EOF
 #!/usr/bin/env node
 require('$INSTALL_DIR/src/index.js');
@@ -99,6 +119,7 @@ EOF
 chmod +x /usr/local/bin/gtm-installer
 
 # Configurar atualizações automáticas
+log "Configurando atualizações automáticas..."
 cat > /etc/apt/apt.conf.d/20auto-upgrades <<EOF
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
@@ -107,6 +128,7 @@ APT::Periodic::AutocleanInterval "7";
 EOF
 
 # Configurar limpeza automática
+log "Configurando limpeza automática do Docker..."
 cat > /etc/cron.daily/docker-cleanup <<EOF
 #!/bin/bash
 docker system prune -af --volumes
