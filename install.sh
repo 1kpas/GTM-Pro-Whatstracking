@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Colors
+# Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -9,37 +9,54 @@ NC='\033[0m'
 echo -e "${GREEN}GTM - Pro Whatsapp Stack Installer${NC}"
 echo "=============================="
 
-# Check if running as root
+# Verificar se está rodando como root
 if [ "$EUID" -ne 0 ]; then 
-  echo -e "${RED}Please run as root${NC}"
+  echo -e "${RED}Por favor, execute como root (sudo)${NC}"
   exit
 fi
 
-# Install Docker if not installed
+# Instalar curl se não estiver instalado
+if ! command -v curl &> /dev/null; then
+  apt-get update
+  apt-get install -y curl
+fi
+
+# Instalar Node.js e npm
+if ! command -v node &> /dev/null; then
+  echo -e "${YELLOW}Instalando Node.js...${NC}"
+  curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+  apt-get install -y nodejs
+fi
+
+# Instalar Docker se não estiver instalado
 if ! command -v docker &> /dev/null; then
-  echo -e "${YELLOW}Installing Docker...${NC}"
+  echo -e "${YELLOW}Instalando Docker...${NC}"
   curl -fsSL https://get.docker.com | bash
   systemctl enable docker
   systemctl start docker
 fi
 
-# Initialize Docker Swarm
+# Inicializar Docker Swarm
 if ! docker info | grep -q "Swarm: active"; then
-  echo -e "${YELLOW}Initializing Docker Swarm...${NC}"
+  echo -e "${YELLOW}Inicializando Docker Swarm...${NC}"
   ip=$(hostname -I | awk '{print $1}')
   docker swarm init --advertise-addr $ip
 fi
 
-# Create data directory
+# Criar diretório de dados
 mkdir -p /root/dados_vps
 
-# Download installer
-echo -e "${YELLOW}Downloading installer...${NC}"
-curl -o /usr/local/bin/gtm-installer https://raw.githubusercontent.com/GTM-Pro/installer/main/src/index.js
+# Clonar repositório
+echo -e "${YELLOW}Baixando instalador...${NC}"
+git clone https://github.com/1kpas/GTM-Pro-Whatstracking.git /opt/gtm-installer
+cd /opt/gtm-installer
+
+# Instalar dependências
+npm install
+
+# Criar link simbólico
+ln -s /opt/gtm-installer/src/index.js /usr/local/bin/gtm-installer
 chmod +x /usr/local/bin/gtm-installer
 
-# Install Node.js dependencies
-npm install -g axios chalk inquirer
-
-echo -e "${GREEN}Installation complete!${NC}"
-echo "Run 'gtm-installer' to start installing stacks"
+echo -e "${GREEN}Instalação concluída!${NC}"
+echo "Execute 'gtm-installer' para começar a instalar as stacks"
