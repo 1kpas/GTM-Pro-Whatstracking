@@ -1,0 +1,1383 @@
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\install.sh ---
+#!/bin/bash
+
+# Cores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Função para log
+log() {
+    echo -e "${2:-$GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+# Verificar root
+if [ "$EUID" -ne 0 ]; then 
+    log "Execute como root (sudo)" "$RED"
+    exit 1
+fi
+
+# Atualizar sistema
+log "Atualizando sistema..."
+apt-get update && apt-get upgrade -y
+apt-get install -y software-properties-common curl wget git apt-transport-https ca-certificates gnupg
+
+# Configurar timezone
+log "Configurando timezone..."
+timedatectl set-timezone America/Sao_Paulo
+
+# Instalar Node.js 20 LTS
+log "Configurando Node.js..."
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+    npm install -g npm@latest
+    node_version=$(node --version)
+    log "Node.js $node_version instalado com sucesso"
+else
+    log "Node.js já instalado."
+fi
+
+# Instalar Docker
+log "Configurando Docker..."
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com | bash
+    systemctl enable docker
+    systemctl start docker
+else
+    log "Docker já instalado."
+fi
+
+# Inicializar Swarm
+log "Configurando Docker Swarm..."
+if ! docker info | grep -q "Swarm: active"; then
+    ip=$(hostname -I | awk '{print $1}')
+    docker swarm init --advertise-addr $ip
+else
+    log "Docker Swarm já configurado."
+fi
+
+# Limpar configuração anterior
+INSTALL_DIR="/opt/gtm-installer"
+SYMLINK="/usr/local/bin/gtm-installer"
+
+log "Limpando qualquer instalação anterior..." "$YELLOW"
+docker stack rm gtm_stack &>/dev/null || true
+sleep 5
+docker system prune -af --volumes &>/dev/null || true
+
+if [ -d "$INSTALL_DIR" ]; then
+    rm -rf "$INSTALL_DIR"
+    log "Diretório $INSTALL_DIR removido." "$RED"
+fi
+
+if [ -L "$SYMLINK" ]; then
+    rm -f "$SYMLINK"
+    log "Link simbólico $SYMLINK removido." "$RED"
+fi
+
+# Clonar repositório
+log "Clonando repositório..."
+git clone https://github.com/1kpas/GTM-Pro-Whatstracking.git "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# Instalar dependências
+log "Instalando dependências..."
+npm install --production &>/tmp/npm-install.log
+if [ $? -ne 0 ]; then
+    log "Erro ao instalar dependências. Verifique o log em /tmp/npm-install.log" "$RED"
+    exit 1
+fi
+
+# Criar link simbólico
+log "Criando link simbólico para o GTM Installer..."
+cat > "$SYMLINK" <<EOF
+#!/usr/bin/env node
+require('$INSTALL_DIR/src/index.js');
+EOF
+chmod +x "$SYMLINK"
+
+# Configurar atualizações automáticas
+log "Configurando atualizações automáticas..."
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<EOF
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+EOF
+
+# Configurar limpeza automática
+log "Configurando limpeza automática do Docker..."
+cat > /etc/cron.daily/docker-cleanup <<EOF
+#!/bin/bash
+docker system prune -af --volumes
+EOF
+chmod +x /etc/cron.daily/docker-cleanup
+
+log "Instalação concluída!" "$GREEN"
+log "Execute 'gtm-installer' para começar a instalar as stacks" "$YELLOW"
+
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\mapeador.py ---
+import os
+
+def copy_files_content(output_file):
+    with open(output_file, 'w', encoding='utf-8') as outfile:
+        for dirpath, dirnames, filenames in os.walk(os.getcwd(), topdown=True):
+            # Ignorar as pastas node_modules, .next e .git
+            dirnames[:] = [d for d in dirnames if d not in ['node_modules', '.next', '.git', 'logs', 'ui']]
+
+            for filename in filenames:
+                # Ignorar o arquivo package-lock.json
+                if filename in ('package-lock.json', 'backup.txt'):
+                    continue
+                
+                file_path = os.path.join(dirpath, filename)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as infile:
+                        content = infile.read()
+                        outfile.write(f'--- Arquivo: {file_path} ---\n')
+                        outfile.write(content + '\n')
+                        outfile.write('\n' + '=' * 40 + '\n\n')  # Adiciona espaçamento entre arquivos
+                except Exception as e:
+                    print(f'Não foi possível ler o arquivo {file_path}: {e}')
+
+if __name__ == '__main__':
+    output_txt = 'mapeamento.txt'  # Nome do arquivo de saída
+    copy_files_content(output_txt)
+
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\mapeamento.txt ---
+
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\package.json ---
+{
+  "name": "gtm-installer",
+  "version": "1.0.0",
+  "description": "Instalador de stacks Docker para GTM Pro Whatsapp",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.3",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6",
+    "node-docker-api": "^1.1.22",
+    "dotenv": "^16.3.1",
+    "form-data": "^4.0.1",
+    "yaml": "^2.3.4"
+  }
+}
+
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\index.js ---
+const inquirer = require('inquirer');
+const chalk = require('chalk');
+const { iniciarSwarm } = require('./utils/swarm');
+const { configurarTraefik } = require('./stacks/traefik');
+const { configurarChatwoot } = require('./stacks/chatwoot');
+const { configurarEvolution } = require('./stacks/evolution');
+const { configurarN8N } = require('./stacks/n8n');
+const { log } = require('./utils/logger');
+
+async function main() {
+  console.clear();
+  log.info('Instalador de Stacks GTM - Pro Whatsapp');
+  
+  // Configuração inicial do Traefik e Portainer
+  const config = await configurarTraefik();
+  
+  while (true) {
+    const { acao } = await inquirer.prompt([{
+      type: 'list',
+      name: 'acao',
+      message: 'Escolha uma opção:',
+      choices: [
+        { name: 'Instalar Chatwoot', value: 'chatwoot' },
+        { name: 'Instalar Evolution API', value: 'evolution' },
+        { name: 'Instalar N8N', value: 'n8n' },
+        { name: 'Sair', value: 'sair' }
+      ]
+    }]);
+
+    if (acao === 'sair') break;
+
+    try {
+      switch (acao) {
+        case 'chatwoot':
+          await configurarChatwoot(config);
+          break;
+        case 'evolution':
+          await configurarEvolution(config);
+          break;
+        case 'n8n':
+          await configurarN8N(config);
+          break;
+      }
+    } catch (erro) {
+      log.error(`Erro: ${erro.message}`);
+    }
+  }
+}
+
+main().catch(erro => {
+  log.error(`Erro fatal: ${erro.message}`);
+  process.exit(1);
+});
+
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\config\index.js ---
+const fs = require('fs').promises;
+const path = require('path');
+
+const CONFIG_DIR = '/root/dados_vps';
+const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+
+const defaultConfig = {
+  installDir: '/opt/stacks',
+  dataDir: '/var/lib/docker/volumes',
+  logDir: '/var/log/stacks'
+};
+
+async function initConfig() {
+  try {
+    await fs.mkdir(CONFIG_DIR, { recursive: true });
+    
+    try {
+      await fs.access(CONFIG_FILE);
+    } catch {
+      await fs.writeFile(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
+    }
+  } catch (error) {
+    throw new Error(`Erro ao inicializar configurações: ${error.message}`);
+  }
+}
+
+module.exports = {
+  initConfig,
+  CONFIG_DIR,
+  CONFIG_FILE
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\config\portainer.js ---
+const fs = require('fs').promises;
+const path = require('path');
+const axios = require('axios');
+const { log } = require('../utils/logger');
+
+class PortainerConfig {
+  constructor() {
+    this.configPath = path.join(process.env.HOME, 'dados_vps/portainer.json');
+    this.config = null;
+    this.token = null;
+    this.maxRetries = 10;
+    this.retryDelay = 5000;
+  }
+
+  async load() {
+    try {
+      const data = await fs.readFile(this.configPath, 'utf8');
+      this.config = JSON.parse(data);
+      return this.config;
+    } catch {
+      return null;
+    }
+  }
+
+  async save(config) {
+    await fs.mkdir(path.dirname(this.configPath), { recursive: true });
+    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2));
+    this.config = config;
+  }
+
+  async authenticate(retryCount = 0) {
+    try {
+      if (!this.config) {
+        throw new Error('Configuração do Portainer não encontrada');
+      }
+
+      const response = await axios.post(`${this.config.url}/api/auth`, {
+        username: this.config.username,
+        password: this.config.password
+      });
+
+      this.token = response.data.jwt;
+      return this.token;
+
+    } catch (error) {
+      if (retryCount < this.maxRetries) {
+        log.warning(`Tentativa ${retryCount + 1}/${this.maxRetries} de autenticação falhou. Tentando novamente em 5 segundos...`);
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+        return this.authenticate(retryCount + 1);
+      }
+
+      await this.clearConfig();
+      throw new Error('Falha na autenticação do Portainer após várias tentativas');
+    }
+  }
+
+  async clearConfig() {
+    this.config = null;
+    this.token = null;
+    try {
+      await fs.unlink(this.configPath);
+    } catch {
+      // Ignora erro se arquivo não existir
+    }
+  }
+
+  async deployStack(name, composeContent) {
+    try {
+      if (!this.token) {
+        await this.authenticate();
+      }
+
+      const endpointId = await this.getEndpointId();
+      const swarmId = await this.getSwarmId(endpointId);
+
+      const formData = new FormData();
+      formData.append('Name', name);
+      formData.append('file', new Blob([composeContent], { type: 'text/yaml' }));
+      formData.append('SwarmID', swarmId);
+      formData.append('Env', []);
+
+      await axios.post(
+        `${this.config.url}/api/stacks/create/swarm/file?endpointId=${endpointId}`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      log.success(`Stack ${name} implantada com sucesso`);
+      return true;
+
+    } catch (error) {
+      throw new Error(`Erro ao implantar stack ${name}: ${error.message}`);
+    }
+  }
+
+  async getEndpointId() {
+    try {
+      const response = await axios.get(`${this.config.url}/api/endpoints`, {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+      });
+      
+      const endpoint = response.data.find(e => e.Name === 'primary');
+      if (!endpoint) {
+        throw new Error('Endpoint primário não encontrado');
+      }
+      
+      return endpoint.Id;
+    } catch (error) {
+      throw new Error(`Erro ao obter endpoint ID: ${error.message}`);
+    }
+  }
+
+  async getSwarmId(endpointId) {
+    try {
+      const response = await axios.get(
+        `${this.config.url}/api/endpoints/${endpointId}/docker/swarm`,
+        {
+          headers: { 'Authorization': `Bearer ${this.token}` }
+        }
+      );
+      return response.data.ID;
+    } catch (error) {
+      throw new Error(`Erro ao obter Swarm ID: ${error.message}`);
+    }
+  }
+}
+
+module.exports = new PortainerConfig();
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\config\smtp.js ---
+const fs = require('fs').promises;
+const path = require('path');
+
+class SMTPConfig {
+  constructor() {
+    this.configPath = path.join(process.env.HOME, 'dados_vps/smtp.json');
+    this.config = null;
+  }
+
+  async load() {
+    try {
+      const data = await fs.readFile(this.configPath, 'utf8');
+      this.config = JSON.parse(data);
+      return this.config;
+    } catch {
+      return null;
+    }
+  }
+
+  async save(smtpConfig) {
+    const config = {
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      user: smtpConfig.user,
+      password: smtpConfig.password,
+      from: smtpConfig.from
+    };
+
+    await fs.mkdir(path.dirname(this.configPath), { recursive: true });
+    await fs.writeFile(this.configPath, JSON.stringify(config, null, 2));
+    this.config = config;
+  }
+
+  getConfig() {
+    return this.config;
+  }
+}
+
+module.exports = new SMTPConfig();
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\config\swarm.js ---
+const Docker = require('node-docker-api').Docker;
+const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+class SwarmManager {
+  constructor() {
+    this.docker = docker;
+  }
+
+  async initSwarm() {
+    try {
+      const swarmStatus = await this.docker.swarm.inspect();
+      return swarmStatus;
+    } catch {
+      const ip = require('os').networkInterfaces().eth0[0].address;
+      return await this.docker.swarm.init({
+        ListenAddr: `${ip}:2377`,
+        AdvertiseAddr: ip
+      });
+    }
+  }
+
+  async deployStack(name, composeFile) {
+    try {
+      await this.docker.swarm.services.create({
+        Name: name,
+        TaskTemplate: {
+          ContainerSpec: {
+            Image: composeFile.services[name].image
+          }
+        },
+        ...composeFile.services[name].deploy
+      });
+      return true;
+    } catch (error) {
+      throw new Error(`Erro ao fazer deploy da stack ${name}: ${error.message}`);
+    }
+  }
+}
+
+module.exports = new SwarmManager();
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\installers\chatwoot.js ---
+const inquirer = require('inquirer');
+const { execSync } = require('child_process');
+const { log } = require('../utils/logger');
+const { validateDomain, validateEmail } = require('../utils/validators');
+const { setupDatabase } = require('../utils/database');
+
+async function installChatwoot() {
+  try {
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'domain',
+        message: 'Digite o domínio para o Chatwoot:',
+        validate: validateDomain
+      },
+      {
+        type: 'input',
+        name: 'email',
+        message: 'Digite o email para SMTP:',
+        validate: validateEmail
+      },
+      {
+        type: 'input',
+        name: 'smtpUser',
+        message: 'Digite o usuário SMTP:',
+        validate: input => input.length >= 3
+      },
+      {
+        type: 'password',
+        name: 'smtpPassword',
+        message: 'Digite a senha SMTP:',
+        validate: input => input.length >= 6
+      },
+      {
+        type: 'input',
+        name: 'smtpHost',
+        message: 'Digite o host SMTP:',
+        validate: validateDomain
+      },
+      {
+        type: 'number',
+        name: 'smtpPort',
+        message: 'Digite a porta SMTP:',
+        default: 587
+      }
+    ]);
+
+    // Configurar banco de dados
+    await setupDatabase('chatwoot');
+    log.info('Banco de dados configurado com sucesso');
+
+    // Gerar chave de criptografia
+    const encryptionKey = execSync('openssl rand -hex 32').toString().trim();
+
+    // Criar stack do Chatwoot
+    const chatwootStack = generateChatwootStack({
+      ...answers,
+      encryptionKey
+    });
+
+    execSync(`echo '${chatwootStack}' > chatwoot.yaml`);
+    execSync('docker stack deploy --prune --resolve-image always -c chatwoot.yaml chatwoot');
+    log.info('Chatwoot implantado com sucesso');
+
+    // Configurar banco de dados inicial
+    await setupChatwootDatabase();
+    log.info('Banco de dados do Chatwoot inicializado');
+
+  } catch (error) {
+    log.error(`Erro na instalação do Chatwoot: ${error.message}`);
+    throw error;
+  }
+}
+
+function generateChatwootStack(config) {
+  return `
+version: '3.7'
+services:
+  chatwoot:
+    image: chatwoot/chatwoot:latest
+    environment:
+      - RAILS_ENV=production
+      - SECRET_KEY_BASE=${config.encryptionKey}
+      - FRONTEND_URL=https://${config.domain}
+      - SMTP_ADDRESS=${config.smtpHost}
+      - SMTP_PORT=${config.smtpPort}
+      - SMTP_USERNAME=${config.smtpUser}
+      - SMTP_PASSWORD=${config.smtpPassword}
+      - SMTP_AUTHENTICATION=plain
+      - SMTP_ENABLE_STARTTLS_AUTO=true
+      - SMTP_OPENSSL_VERIFY_MODE=none
+      - DEFAULT_LOCALE=pt_BR
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DATABASE=chatwoot
+      - POSTGRES_USERNAME=postgres
+      - POSTGRES_PASSWORD=${config.dbPassword}
+      - REDIS_URL=redis://redis:6379
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.chatwoot.rule=Host(\`${config.domain}\`)
+        - traefik.http.services.chatwoot.loadbalancer.server.port=3000
+        - traefik.http.routers.chatwoot.entrypoints=websecure
+        - traefik.http.routers.chatwoot.tls.certresolver=letsencryptresolver
+    networks:
+      - chatwoot_network
+
+networks:
+  chatwoot_network:
+    external: true
+    name: chatwoot_network
+`;
+}
+
+async function setupChatwootDatabase() {
+  const container = execSync('docker ps -q -f name=chatwoot_web').toString().trim();
+  execSync(`docker exec ${container} bundle exec rails db:chatwoot_prepare`);
+}
+
+module.exports = {
+  installChatwoot
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\installers\index.js ---
+const { installTraefikPortainer } = require('./traefik-portainer');
+const { installChatwoot } = require('./chatwoot');
+const { installEvolution } = require('./evolution');
+const { installN8N } = require('./n8n');
+const { menuOptions } = require('../ui/menu');
+const { log } = require('../utils/logger');
+
+async function installStack(option) {
+  try {
+    switch (option) {
+      case menuOptions.TRAEFIK_PORTAINER:
+        await installTraefikPortainer();
+        break;
+      case menuOptions.CHATWOOT:
+        await installChatwoot();
+        break;
+      case menuOptions.EVOLUTION:
+        await installEvolution();
+        break;
+      case menuOptions.N8N:
+        await installN8N();
+        break;
+      default:
+        log.error('Opção inválida');
+    }
+  } catch (error) {
+    log.error(`Erro ao instalar stack: ${error.message}`);
+  }
+}
+
+module.exports = {
+  installStack
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\installers\traefik-portainer.js ---
+const inquirer = require('inquirer');
+const { execSync } = require('child_process');
+const { log } = require('../utils/logger');
+const { validateDomain, validateEmail } = require('../utils/validators');
+
+async function installTraefikPortainer() {
+  try {
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'portainerDomain',
+        message: 'Digite o domínio para o Portainer:',
+        validate: validateDomain
+      },
+      {
+        type: 'input',
+        name: 'serverName',
+        message: 'Digite o nome do servidor:',
+        validate: input => input.length >= 3
+      },
+      {
+        type: 'input',
+        name: 'networkName',
+        message: 'Digite o nome da rede interna:',
+        validate: input => /^[a-zA-Z0-9_-]+$/.test(input)
+      },
+      {
+        type: 'input',
+        name: 'email',
+        message: 'Digite o email para o SSL:',
+        validate: validateEmail
+      }
+    ]);
+
+    // Criar rede Docker
+    execSync(`docker network create --driver=overlay ${answers.networkName}`);
+    log.info('Rede Docker criada com sucesso');
+
+    // Criar e implantar stack do Traefik
+    const traefikStack = generateTraefikStack(answers);
+    execSync(`echo '${traefikStack}' > traefik.yaml`);
+    execSync('docker stack deploy --prune --resolve-image always -c traefik.yaml traefik');
+    log.info('Traefik implantado com sucesso');
+
+    // Criar e implantar stack do Portainer
+    const portainerStack = generatePortainerStack(answers);
+    execSync(`echo '${portainerStack}' > portainer.yaml`);
+    execSync('docker stack deploy --prune --resolve-image always -c portainer.yaml portainer');
+    log.info('Portainer implantado com sucesso');
+
+  } catch (error) {
+    log.error(`Erro na instalação: ${error.message}`);
+    throw error;
+  }
+}
+
+function generateTraefikStack(config) {
+  return `
+version: "3.7"
+services:
+  traefik:
+    image: traefik:v2.11.2
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker.swarmMode=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${config.networkName}"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencryptresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencryptresolver.acme.email=${config.email}"
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - ${config.networkName}
+
+networks:
+  ${config.networkName}:
+    external: true
+`;
+}
+
+function generatePortainerStack(config) {
+  return `
+version: "3.7"
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portainer.rule=Host(\`${config.portainerDomain}\`)"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - ${config.networkName}
+
+volumes:
+  portainer_data:
+
+networks:
+  ${config.networkName}:
+    external: true
+`;
+}
+
+module.exports = {
+  installTraefikPortainer
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\stacks\chatwoot.js ---
+const swarm = require('../config/swarm');
+const { log } = require('../utils/logger');
+
+async function deployChatwoot(config) {
+  const stack = {
+    version: '3.7',
+    services: {
+      chatwoot_web: {
+        image: 'chatwoot/chatwoot:latest',
+        command: 'bundle exec rails s -p 3000 -b 0.0.0.0',
+        environment: {
+          FRONTEND_URL: `https://${config.domain}`,
+          SECRET_KEY_BASE: config.secretKey,
+          POSTGRES_HOST: 'postgres',
+          POSTGRES_USERNAME: 'postgres',
+          POSTGRES_PASSWORD: config.dbPassword,
+          REDIS_URL: 'redis://redis:6379',
+          SMTP_ADDRESS: config.smtp.host,
+          SMTP_PORT: config.smtp.port,
+          SMTP_USERNAME: config.smtp.user,
+          SMTP_PASSWORD: config.smtp.password,
+          SMTP_DOMAIN: config.smtp.domain,
+          DEFAULT_LOCALE: 'pt_BR'
+        },
+        volumes: [
+          'chatwoot_storage:/app/storage',
+          'chatwoot_public:/app/public'
+        ],
+        networks: [config.networkName],
+        deploy: {
+          replicas: 1,
+          placement: {
+            constraints: ['node.role == manager']
+          },
+          labels: [
+            'traefik.enable=true',
+            `traefik.http.routers.chatwoot.rule=Host(\`${config.domain}\`)`,
+            'traefik.http.routers.chatwoot.entrypoints=websecure',
+            'traefik.http.routers.chatwoot.tls.certresolver=letsencryptresolver'
+          ]
+        }
+      },
+      chatwoot_sidekiq: {
+        image: 'chatwoot/chatwoot:latest',
+        command: 'bundle exec sidekiq',
+        environment: {
+          REDIS_URL: 'redis://redis:6379',
+          POSTGRES_HOST: 'postgres',
+          POSTGRES_USERNAME: 'postgres',
+          POSTGRES_PASSWORD: config.dbPassword
+        },
+        volumes: [
+          'chatwoot_storage:/app/storage',
+          'chatwoot_public:/app/public'
+        ],
+        networks: [config.networkName],
+        deploy: {
+          replicas: 1,
+          placement: {
+            constraints: ['node.role == manager']
+          }
+        }
+      }
+    },
+    networks: {
+      [config.networkName]: {
+        external: true
+      }
+    },
+    volumes: {
+      chatwoot_storage: {
+        external: true
+      },
+      chatwoot_public: {
+        external: true
+      }
+    }
+  };
+
+  return await swarm.deployStack('chatwoot', stack);
+}
+
+module.exports = {
+  deployChatwoot
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\stacks\evolution.js ---
+const swarm = require('../config/swarm');
+const { log } = require('../utils/logger');
+
+async function deployEvolution(config) {
+  const stack = {
+    version: '3.7',
+    services: {
+      evolution: {
+        image: 'atendai/evolution-api:v2.1.0',
+        volumes: ['evolution_instances:/evolution/instances'],
+        networks: [config.networkName],
+        environment: {
+          SERVER_URL: `https://${config.domain}`,
+          AUTHENTICATION_API_KEY: config.apiKey,
+          DATABASE_CONNECTION_URI: `postgresql://postgres:${config.dbPassword}@postgres:5432/evolution`,
+          CACHE_REDIS_URI: 'redis://redis:6379/8',
+          LANGUAGE: 'pt-BR'
+        },
+        deploy: {
+          mode: 'replicated',
+          replicas: 1,
+          placement: {
+            constraints: ['node.role == manager']
+          },
+          labels: [
+            'traefik.enable=true',
+            `traefik.http.routers.evolution.rule=Host(\`${config.domain}\`)`,
+            'traefik.http.routers.evolution.entrypoints=websecure',
+            'traefik.http.routers.evolution.tls.certresolver=letsencryptresolver'
+          ]
+        }
+      }
+    },
+    networks: {
+      [config.networkName]: {
+        external: true
+      }
+    },
+    volumes: {
+      evolution_instances: {
+        external: true
+      }
+    }
+  };
+
+  return await swarm.deployStack('evolution', stack);
+}
+
+module.exports = {
+  deployEvolution
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\stacks\n8n.js ---
+const swarm = require('../config/swarm');
+const { log } = require('../utils/logger');
+
+async function deployN8N(config) {
+  const stack = {
+    version: '3.7',
+    services: {
+      n8n: {
+        image: 'n8nio/n8n:latest',
+        environment: {
+          N8N_HOST: config.domain,
+          DB_TYPE: 'postgresdb',
+          DB_POSTGRESDB_HOST: 'postgres',
+          DB_POSTGRESDB_DATABASE: 'n8n',
+          DB_POSTGRESDB_USER: 'postgres',
+          DB_POSTGRESDB_PASSWORD: config.dbPassword,
+          N8N_EMAIL_MODE: 'smtp',
+          N8N_SMTP_HOST: config.smtp.host,
+          N8N_SMTP_PORT: config.smtp.port,
+          N8N_SMTP_USER: config.smtp.user,
+          N8N_SMTP_PASS: config.smtp.password,
+          N8N_SMTP_SENDER: config.smtp.from,
+          WEBHOOK_URL: `https://${config.webhookDomain}`,
+          GENERIC_TIMEZONE: 'America/Sao_Paulo'
+        },
+        volumes: ['n8n_data:/home/node/.n8n'],
+        networks: [config.networkName],
+        deploy: {
+          replicas: 1,
+          placement: {
+            constraints: ['node.role == manager']
+          },
+          labels: [
+            'traefik.enable=true',
+            `traefik.http.routers.n8n.rule=Host(\`${config.domain}\`)`,
+            'traefik.http.routers.n8n.entrypoints=websecure',
+            'traefik.http.routers.n8n.tls.certresolver=letsencryptresolver'
+          ]
+        }
+      }
+    },
+    networks: {
+      [config.networkName]: {
+        external: true
+      }
+    },
+    volumes: {
+      n8n_data: {
+        external: true
+      }
+    }
+  };
+
+  return await swarm.deployStack('n8n', stack);
+}
+
+module.exports = {
+  deployN8N
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\stacks\traefik.js ---
+const swarm = require('../config/swarm');
+
+async function deployTraefik(domain, email) {
+  const stack = {
+    version: '3.7',
+    services: {
+      traefik: {
+        image: 'traefik:v2.11.2',
+        command: [
+          '--api.dashboard=true',
+          '--providers.docker.swarmMode=true',
+          '--providers.docker.exposedbydefault=false',
+          '--entrypoints.web.address=:80',
+          '--entrypoints.websecure.address=:443',
+          '--certificatesresolvers.letsencryptresolver.acme.httpchallenge=true',
+          `--certificatesresolvers.letsencryptresolver.acme.email=${email}`
+        ],
+        deploy: {
+          placement: {
+            constraints: ['node.role == manager']
+          },
+          labels: [
+            'traefik.enable=true',
+            `traefik.http.routers.traefik.rule=Host(\`${domain}\`)`,
+            'traefik.http.services.traefik.loadbalancer.server.port=8080'
+          ]
+        },
+        ports: [
+          '80:80',
+          '443:443'
+        ],
+        volumes: [
+          '/var/run/docker.sock:/var/run/docker.sock:ro'
+        ]
+      }
+    }
+  };
+
+  return await swarm.deployStack('traefik', stack);
+}
+
+module.exports = {
+  deployTraefik
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\utils\database.js ---
+const { execSync } = require('child_process');
+const { log } = require('./logger');
+
+async function setupDatabase(dbName) {
+  try {
+    // Verificar se o PostgreSQL está instalado
+    const postgresRunning = checkPostgresRunning();
+    if (!postgresRunning) {
+      await installPostgres();
+    }
+
+    // Criar banco de dados
+    createDatabase(dbName);
+
+    return true;
+  } catch (error) {
+    log.error(`Erro ao configurar banco de dados: ${error.message}`);
+    throw error;
+  }
+}
+
+function checkPostgresRunning() {
+  try {
+    execSync('docker ps | grep postgres');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function installPostgres() {
+  const postgresStack = `
+version: '3.7'
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_PASSWORD=${generatePassword()}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - db_network
+
+volumes:
+  postgres_data:
+
+networks:
+  db_network:
+    external: true
+`;
+
+  execSync(`echo '${postgresStack}' > postgres.yaml`);
+  execSync('docker stack deploy --prune --resolve-image always -c postgres.yaml postgres');
+  
+  // Aguardar PostgreSQL iniciar
+  await waitForPostgres();
+}
+
+function createDatabase(dbName) {
+  execSync(`docker exec postgres createdb -U postgres ${dbName}`);
+}
+
+function generatePassword() {
+  return execSync('openssl rand -hex 16').toString().trim();
+}
+
+async function waitForPostgres() {
+  return new Promise((resolve) => {
+    const checkInterval = setInterval(() => {
+      try {
+        execSync('docker exec postgres pg_isready');
+        clearInterval(checkInterval);
+        resolve();
+      } catch {
+        // Continuar aguardando
+      }
+    }, 1000);
+  });
+}
+
+module.exports = {
+  setupDatabase
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\utils\logger.js ---
+const chalk = require('chalk');
+const fs = require('fs').promises;
+const path = require('path');
+
+const LOG_DIR = path.join(process.env.HOME, 'dados_vps/logs');
+
+const log = {
+  async salvar(tipo, mensagem, dados = null) {
+    const timestamp = new Date().toISOString();
+    const logEntry = {
+      timestamp,
+      tipo,
+      mensagem,
+      dados
+    };
+
+    await fs.mkdir(LOG_DIR, { recursive: true });
+    await fs.appendFile(
+      path.join(LOG_DIR, 'instalador.log'),
+      JSON.stringify(logEntry) + '\n'
+    );
+  },
+
+  info(mensagem, dados = null) {
+    console.log(chalk.blue('INFO:'), mensagem);
+    this.salvar('info', mensagem, dados);
+  },
+
+  sucesso(mensagem, dados = null) {
+    console.log(chalk.green('SUCESSO:'), mensagem);
+    this.salvar('sucesso', mensagem, dados);
+  },
+
+  erro(mensagem, dados = null) {
+    console.error(chalk.red('ERRO:'), mensagem);
+    this.salvar('erro', mensagem, dados);
+  },
+
+  aviso(mensagem, dados = null) {
+    console.warn(chalk.yellow('AVISO:'), mensagem);
+    this.salvar('aviso', mensagem, dados);
+  }
+};
+
+module.exports = {
+  log
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\utils\portainer.js ---
+const inquirer = require('inquirer');
+const portainerConfig = require('../config/portainer');
+const { log } = require('./logger');
+const { validateDomain } = require('./validators');
+
+async function ensurePortainerConfig() {
+  let config = await portainerConfig.load();
+  
+  if (!config) {
+    config = await promptPortainerCredentials();
+    await portainerConfig.save(config);
+  }
+
+  try {
+    await portainerConfig.authenticate();
+  } catch (error) {
+    log.error('Credenciais do Portainer inválidas ou servidor inacessível');
+    config = await promptPortainerCredentials();
+    await portainerConfig.save(config);
+    await portainerConfig.authenticate();
+  }
+
+  return config;
+}
+
+async function promptPortainerCredentials() {
+  const answers = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'url',
+      message: 'Digite a URL do Portainer (ex: https://portainer.seudominio.com):',
+      validate: validateDomain
+    },
+    {
+      type: 'input',
+      name: 'username',
+      message: 'Digite o usuário do Portainer:',
+      validate: input => input.length >= 3
+    },
+    {
+      type: 'password',
+      name: 'password',
+      message: 'Digite a senha do Portainer:',
+      validate: input => input.length >= 8
+    }
+  ]);
+
+  return answers;
+}
+
+module.exports = {
+  ensurePortainerConfig
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\utils\swarm.js ---
+const { execSync } = require('child_process');
+const { log } = require('./logger');
+
+async function iniciarSwarm() {
+  try {
+    // Verificar se já está em modo swarm
+    const swarmStatus = execSync('docker info --format "{{.Swarm.LocalNodeState}}"')
+      .toString()
+      .trim();
+
+    if (swarmStatus === 'active') {
+      log.info('Docker Swarm já está ativo');
+      return true;
+    }
+
+    // Obter IP da interface principal
+    const ip = execSync("hostname -I | awk '{print $1}'")
+      .toString()
+      .trim();
+
+    // Inicializar swarm
+    execSync(`docker swarm init --advertise-addr ${ip}`);
+    log.sucesso('Docker Swarm inicializado com sucesso');
+
+    // Criar rede overlay
+    const redeNome = 'gtm_network';
+    execSync(`docker network create --driver overlay ${redeNome}`);
+    log.sucesso(`Rede ${redeNome} criada`);
+
+    return true;
+
+  } catch (erro) {
+    log.erro(`Erro ao inicializar Docker Swarm: ${erro.message}`);
+    throw erro;
+  }
+}
+
+async function verificarSwarm() {
+  try {
+    const swarmStatus = execSync('docker info --format "{{.Swarm.LocalNodeState}}"')
+      .toString()
+      .trim();
+    return swarmStatus === 'active';
+  } catch (erro) {
+    return false;
+  }
+}
+
+async function criarRede(nome) {
+  try {
+    // Verificar se a rede já existe
+    const redes = execSync('docker network ls --format "{{.Name}}"')
+      .toString()
+      .split('\n');
+
+    if (!redes.includes(nome)) {
+      execSync(`docker network create --driver overlay ${nome}`);
+      log.sucesso(`Rede ${nome} criada`);
+    } else {
+      log.info(`Rede ${nome} já existe`);
+    }
+    return true;
+  } catch (erro) {
+    log.erro(`Erro ao criar rede ${nome}: ${erro.message}`);
+    throw erro;
+  }
+}
+
+async function removerStack(nome) {
+  try {
+    execSync(`docker stack rm ${nome}`);
+    log.sucesso(`Stack ${nome} removida`);
+    return true;
+  } catch (erro) {
+    log.erro(`Erro ao remover stack ${nome}: ${erro.message}`);
+    throw erro;
+  }
+}
+
+async function listarStacks() {
+  try {
+    const stacks = execSync('docker stack ls --format "{{.Name}}"')
+      .toString()
+      .split('\n')
+      .filter(Boolean);
+    return stacks;
+  } catch (erro) {
+    log.erro(`Erro ao listar stacks: ${erro.message}`);
+    return [];
+  }
+}
+
+module.exports = {
+  iniciarSwarm,
+  verificarSwarm,
+  criarRede,
+  removerStack,
+  listarStacks
+};
+
+========================================
+
+--- Arquivo: C:\Users\joeds\Downloads\Setup GTM-PRO Tracking\src\utils\validators.js ---
+function validarDominio(dominio) {
+  // Remove https:// ou http:// se existir
+  dominio = dominio.replace(/^https?:\/\//, '');
+  
+  const dominioRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
+  if (!dominioRegex.test(dominio)) {
+    throw new Error('Domínio inválido');
+  }
+  return `https://${dominio}`;
+}
+
+function validarEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    throw new Error('Email inválido');
+  }
+  return true;
+}
+
+function validarSenha(senha) {
+  if (senha.length < 8) {
+    throw new Error('A senha deve ter pelo menos 8 caracteres');
+  }
+  return true;
+}
+
+module.exports = {
+  validarDominio,
+  validarEmail,
+  validarSenha
+};
+
+========================================
+
