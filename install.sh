@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuração
-DEV_MODE=false # Altere para "true" para habilitar modo de desenvolvimento
+DEV_MODE=true # Altere para "true" para habilitar modo de desenvolvimento
 
 # Cores
 RED='\033[0;31m'
