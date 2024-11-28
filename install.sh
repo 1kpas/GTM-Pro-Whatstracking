@@ -92,7 +92,10 @@ cd "$INSTALL_DIR"
 npm ci --production
 
 # Criar link simbólico
-ln -sf "$INSTALL_DIR/src/index.js" /usr/local/bin/gtm-installer
+cat > /usr/local/bin/gtm-installer <<EOF
+#!/usr/bin/env node
+require('$INSTALL_DIR/src/index.js');
+EOF
 chmod +x /usr/local/bin/gtm-installer
 
 # Configurar atualizações automáticas
